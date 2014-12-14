@@ -1,0 +1,1 @@
+{"service": {"name": "fd-collect",  "tags": ["fluentd", "collect"],  "port": 24224}} 

@@ -1,0 +1,86 @@
+FROM koduki/centos7
+MAINTAINER koduki
+
+# Install Build tools
+RUN yum -y install maven
+ADD resources/pom.xml /tmp/
+
+# Install Oracle JDK
+ADD resources/install-oracle-jdk8.sh /tmp/
+RUN /tmp/install-oracle-jdk8.sh
+
+# Install GlassFish
+ADD resources/install-glassfish.sh /tmp/
+RUN /tmp/install-glassfish.sh
+
+# Install Fluentd
+ADD resources/install-fluentd.sh /tmp/
+RUN /tmp/install-fluentd.sh
+
+# Configurate Maven
+USER glassfish
+RUN cd /tmp && mvn install
+
+# Configurate Fluentd
+USER root
+ADD resources/fluent.conf /etc/fluent/fluent.conf
+
+# Install Consul 
+ADD resources/install-consul.sh /tmp/
+RUN /tmp/install-consul.sh
+ADD resources/consul.d/web.json /etc/consul/conf.d/
+
+# Install HeapStat
+RUN cd /tmp &&\
+yum -y install pcre-devel net-snmp-devel binutils-devel && \
+wget http://icedtea.wildebeest.org/download/heapstats/heapstats-1.1.2/bin/agent/fc20/srpm/heapstats_agent-1.1.2-0.fc20.src.rpm && \
+rpmbuild --rebuild heapstats_agent-1.1.2-0.fc20.src.rpm && \
+yum -y install /root/rpmbuild/RPMS/x86_64/heapstats_agent-1.1.2-0.el7.centos.x86_64.rpm && \
+rm -rf /root/rpmbuild/
+ADD resources/heapstats.conf /etc/heapstats/heapstats.conf
+
+#
+# Configurate GlassFish
+#
+
+# set glassfish user and workdir
+#USER glassfish
+USER glassfish
+WORKDIR /opt/glassfish4/bin
+
+# User: admin / Pass: glassfish
+RUN echo "admin;{SSHA256}80e0NeB6XBWXsIPa7pT54D9JZ5DR5hGQV1kN1OAsgJePNXY6Pl0EIw==;asadmin" > /opt/glassfish4/glassfish/domains/domain1/config/admin-keyfile
+RUN echo "AS_ADMIN_PASSWORD=glassfish" > pwdfile
+
+# Default to admin/glassfish as user/pass
+RUN \
+  ./asadmin start-domain && \
+  ./asadmin --user admin --passwordfile pwdfile enable-secure-admin && \
+  ./asadmin stop-domain
+
+# Server Confirations
+ADD resources/glassfish-jdbc.sh /tmp/
+ADD resources/glassfish-heapstat.sh /tmp/
+ADD resources/glassfish-gc.sh /tmp/
+RUN ./asadmin start-domain && \
+    /tmp/glassfish-jdbc.sh && \
+    /tmp/glassfish-heapstat.sh && \
+    /tmp/glassfish-gc.sh && \
+   ./asadmin stop-domain
+
+# Deploy Application
+ADD resources/glassfish-deploy.sh /tmp/
+RUN /tmp/glassfish-deploy.sh
+
+# default glassfish ports
+EXPOSE 4848 8080 8181
+
+# fluentd JVM
+RUN gem install fluent-plugin-jvmwatcher --no-ri --no-rdoc
+
+#
+# RUN GlassFish and Fluentd
+#
+USER root
+ADD resources/run.sh /tmp/run.sh
+CMD /tmp/run.sh

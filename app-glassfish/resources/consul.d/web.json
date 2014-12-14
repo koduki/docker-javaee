@@ -1,0 +1,1 @@
+{"service": {"name": "web",  "tags": ["web", "glassfish"],  "port": 8080}} 
